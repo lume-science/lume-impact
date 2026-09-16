@@ -12,6 +12,18 @@ from impact.parsers import ELE_UNITS, HEADER_UNITS
 from impact.model.actions import (
     BoolRunInfoAction,
     HeaderAction,
+    ImpactPMDalpha_x,
+    ImpactPMDalpha_y,
+    ImpactPMDbeta_x,
+    ImpactPMDbeta_y,
+    ImpactPMDkinetic_energy,
+    ImpactPMDnorm_emit_x,
+    ImpactPMDnorm_emit_y,
+    ImpactPMDp,
+    ImpactPMDs,
+    ImpactPMDsigma_x,
+    ImpactPMDsigma_y,
+    ImpactPMDsigma_z,
     ParticleGroupAction,
     ScalarEleAction,
     ScalarRunInfoAction,
@@ -255,6 +267,39 @@ class StatsConfig(ConfigBase):
 
 
 # ------------------------------------------------------------------
+# PMD config
+# ------------------------------------------------------------------
+
+
+class PMDConfig(BaseModel):
+    """
+    Configuration for making pmd: variables from Impact-T output stats.
+
+    Names are fixed by the underlying `PMDVariable` classes (e.g. ``pmd:beta_x``),
+    so there's no ``pattern``/``attrib_map`` here. ``max_size`` behaves as in
+    `StatsConfig`.
+
+    Each field is a ``bool``: ``True`` (default) includes the pmd: variable,
+    ``False`` excludes it.
+    """
+
+    max_size: int | None = None
+
+    s: bool = True
+    sigma_x: bool = True
+    sigma_y: bool = True
+    sigma_z: bool = True
+    norm_emit_x: bool = True
+    norm_emit_y: bool = True
+    kinetic_energy: bool = True
+    p: bool = True
+    beta_x: bool = True
+    beta_y: bool = True
+    alpha_x: bool = True
+    alpha_y: bool = True
+
+
+# ------------------------------------------------------------------
 # Run info config
 # ------------------------------------------------------------------
 
@@ -330,6 +375,7 @@ class VariableMappingConfig(BaseModel):
     header: HeaderConfig | None = HeaderConfig()
     elements: ElementsConfig | None = ElementsConfig()
     stats: StatsConfig | None = StatsConfig()
+    pmd: PMDConfig | None = PMDConfig()
     run_info: RunInfoConfig | None = RunInfoConfig()
     particles: ParticlesConfig | None = ParticlesConfig()
 
@@ -443,6 +489,44 @@ def _make_stat_actions(
     return actions
 
 
+# Maps PMDConfig field name -> ImpactPMD* action class
+_PMD_ACTION_CLASSES = {
+    "s": ImpactPMDs,
+    "sigma_x": ImpactPMDsigma_x,
+    "sigma_y": ImpactPMDsigma_y,
+    "sigma_z": ImpactPMDsigma_z,
+    "norm_emit_x": ImpactPMDnorm_emit_x,
+    "norm_emit_y": ImpactPMDnorm_emit_y,
+    "kinetic_energy": ImpactPMDkinetic_energy,
+    "p": ImpactPMDp,
+    "beta_x": ImpactPMDbeta_x,
+    "beta_y": ImpactPMDbeta_y,
+    "alpha_x": ImpactPMDalpha_x,
+    "alpha_y": ImpactPMDalpha_y,
+}
+
+
+def _make_pmd_actions(
+    impact: Any, config: PMDConfig, stat_size_expansion: float
+) -> list[Action]:
+    actions = []
+    length = impact.stat("mean_z").shape[0]
+    if config.max_size is not None:
+        shape = (config.max_size,)
+    else:
+        shape = (int(length * stat_size_expansion),)
+
+    for field_name, enabled in config.model_dump().items():
+        pmd_cls = _PMD_ACTION_CLASSES.get(field_name)
+        if pmd_cls is None or not enabled:
+            continue
+        # `_get` already pads/trims to `shape`, so it can be reused directly for default_value
+        action = pmd_cls(shape=shape)
+        default_value = action._get(impact)
+        actions.append(action.model_copy(update={"default_value": default_value}))
+    return actions
+
+
 def _make_run_info_actions(impact: Any, config: RunInfoConfig) -> list[Action]:
     actions = []
     run_info_data = impact.output.get("run_info", {})
@@ -530,6 +614,8 @@ def make_actions(
         actions += _make_element_actions(impact, config.elements)
     if config.stats is not None:
         actions += _make_stat_actions(impact, config.stats, stat_size_expansion)
+    if config.pmd is not None:
+        actions += _make_pmd_actions(impact, config.pmd, stat_size_expansion)
     if config.run_info is not None:
         actions += _make_run_info_actions(impact, config.run_info)
     if config.particles is not None:
