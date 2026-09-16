@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import pytest
 from distgen import Generator
 
@@ -66,6 +67,41 @@ def test_t_dist_vars_present(distgen_model):
         assert name in distgen_model.supported_variables
 
 
+def test_pmd_vars_present(distgen_model):
+    for name in (
+        "pmd:s",
+        "pmd:sigma_x",
+        "pmd:sigma_y",
+        "pmd:sigma_z",
+        "pmd:norm_emit_x",
+        "pmd:norm_emit_y",
+        "pmd:kinetic_energy",
+        "pmd:p",
+        "pmd:beta_x",
+        "pmd:beta_y",
+        "pmd:alpha_x",
+        "pmd:alpha_y",
+    ):
+        assert name in distgen_model.supported_variables
+
+
+def test_pmd_vars_are_read_only(distgen_model):
+    pmd_actions = [
+        v
+        for name, v in distgen_model.supported_variables.items()
+        if name.startswith("pmd:")
+    ]
+    assert pmd_actions
+    assert all(a.read_only for a in pmd_actions)
+
+
+def test_pmd_var_get_returns_length_one_array(distgen_model):
+    distgen_model.simulator.run()
+    value = distgen_model._get(["pmd:sigma_x"])["pmd:sigma_x"]
+    assert value.shape == (1,)
+    assert value.dtype == np.float32
+
+
 # LUMEDistgenModel — values match generator
 
 
@@ -114,10 +150,16 @@ def test_set_and_get_total_charge(gen):
 # LUMEDistgenModel — config exclusions
 
 
-def test_no_vars_when_inputs_none(gen):
-    config = DistgenVariableMappingConfig(inputs=None)
+def test_no_vars_when_inputs_and_pmd_none(gen):
+    config = DistgenVariableMappingConfig(inputs=None, pmd=None)
     model = LUMEDistgenModel.from_generator(gen, config=config, dummy_run=True)
     assert len(model.supported_variables) == 0
+
+
+def test_no_pmd_vars_when_pmd_none(gen):
+    config = DistgenVariableMappingConfig(pmd=None)
+    model = LUMEDistgenModel.from_generator(gen, config=config, dummy_run=True)
+    assert not any(n.startswith("pmd:") for n in model.supported_variables)
 
 
 # LUMEDistgenImpactModel — variables present from both sides

@@ -5,7 +5,21 @@ from typing import Any
 from pydantic import BaseModel
 from distgen import Generator
 
-from impact.model.distgen.actions import DistgenInputAction
+from impact.model.distgen.actions import (
+    DistgenInputAction,
+    DistgenPMDalpha_x,
+    DistgenPMDalpha_y,
+    DistgenPMDbeta_x,
+    DistgenPMDbeta_y,
+    DistgenPMDkinetic_energy,
+    DistgenPMDnorm_emit_x,
+    DistgenPMDnorm_emit_y,
+    DistgenPMDp,
+    DistgenPMDs,
+    DistgenPMDsigma_x,
+    DistgenPMDsigma_y,
+    DistgenPMDsigma_z,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -197,10 +211,34 @@ class DistgenInputConfig(BaseModel):
     distributions: DistSlotsConfig | None = DistSlotsConfig()
 
 
+class DistgenPMDConfig(BaseModel):
+    """
+    Configuration for making pmd: variables from the generated distgen beam.
+
+    Names are fixed by the underlying `PMDVariable` classes (e.g. ``pmd:beta_x``).
+    Each field is a ``bool``: ``True`` (default) includes the pmd: variable,
+    ``False`` excludes it.
+    """
+
+    s: bool = True
+    sigma_x: bool = True
+    sigma_y: bool = True
+    sigma_z: bool = True
+    norm_emit_x: bool = True
+    norm_emit_y: bool = True
+    kinetic_energy: bool = True
+    p: bool = True
+    beta_x: bool = True
+    beta_y: bool = True
+    alpha_x: bool = True
+    alpha_y: bool = True
+
+
 class DistgenVariableMappingConfig(BaseModel):
     """Top-level config for building distgen variables and transformers."""
 
     inputs: DistgenInputConfig | None = DistgenInputConfig()
+    pmd: DistgenPMDConfig | None = DistgenPMDConfig()
 
 
 # ------------------------------------------------------------------
@@ -340,6 +378,36 @@ def _process_start_config(
     return actions
 
 
+# Maps DistgenPMDConfig field name -> DistgenPMD* action class
+_PMD_ACTION_CLASSES = {
+    "s": DistgenPMDs,
+    "sigma_x": DistgenPMDsigma_x,
+    "sigma_y": DistgenPMDsigma_y,
+    "sigma_z": DistgenPMDsigma_z,
+    "norm_emit_x": DistgenPMDnorm_emit_x,
+    "norm_emit_y": DistgenPMDnorm_emit_y,
+    "kinetic_energy": DistgenPMDkinetic_energy,
+    "p": DistgenPMDp,
+    "beta_x": DistgenPMDbeta_x,
+    "beta_y": DistgenPMDbeta_y,
+    "alpha_x": DistgenPMDalpha_x,
+    "alpha_y": DistgenPMDalpha_y,
+}
+
+
+def _make_pmd_actions(config: DistgenPMDConfig) -> list[DistgenInputAction]:
+    """Build pmd: variable actions from the generated distgen beam.
+
+    Unlike the other distgen actions, these have no default_value computed
+    here since `gen` may not have been run yet; values are read lazily.
+    """
+    return [
+        pmd_cls()
+        for field_name, enabled in config.model_dump().items()
+        if enabled and (pmd_cls := _PMD_ACTION_CLASSES.get(field_name)) is not None
+    ]
+
+
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
@@ -368,48 +436,51 @@ def make_actions(
         config = DistgenVariableMappingConfig()
 
     inp_cfg = config.inputs
-    if inp_cfg is None:
-        return actions
+    if inp_cfg is not None:
+        gen_input = gen.input
 
-    gen_input = gen.input
+        # Root params (n_particle, total_charge)
+        if inp_cfg.root is not None:
+            root_cfg = inp_cfg.root
+            for field in type(root_cfg).model_fields:
+                if field == "pattern":
+                    continue
+                param_cfg: DistgenParamConfig | None = getattr(root_cfg, field)
+                if not isinstance(param_cfg, DistgenParamConfig):
+                    continue
+                distgen_key = param_cfg.distgen_param or field
+                raw = gen_input.get(distgen_key)
+                if raw is None:
+                    continue
+                has_units = _is_quantity(raw)
+                default_unit = raw.get("units") if has_units else None
+                token = root_cfg.param_map.get(field, field)
+                var_name = param_cfg.name or root_cfg.pattern.format(key=token)
+                full_key = distgen_key
+                if has_units:
+                    full_key += ":value"
+                actions.append(
+                    _make_action(var_name, param_cfg, default_unit, full_key)
+                )
 
-    # Root params (n_particle, total_charge)
-    if inp_cfg.root is not None:
-        root_cfg = inp_cfg.root
-        for field in type(root_cfg).model_fields:
-            if field == "pattern":
-                continue
-            param_cfg: DistgenParamConfig | None = getattr(root_cfg, field)
-            if not isinstance(param_cfg, DistgenParamConfig):
-                continue
-            distgen_key = param_cfg.distgen_param or field
-            raw = gen_input.get(distgen_key)
-            if raw is None:
-                continue
-            has_units = _is_quantity(raw)
-            default_unit = raw.get("units") if has_units else None
-            token = root_cfg.param_map.get(field, field)
-            var_name = param_cfg.name or root_cfg.pattern.format(key=token)
-            full_key = distgen_key
-            if has_units:
-                full_key += ":value"
-            actions.append(_make_action(var_name, param_cfg, default_unit, full_key))
+        # Start
+        if inp_cfg.start is not None:
+            actions.extend(_process_start_config(gen_input, inp_cfg.start))
 
-    # Start
-    if inp_cfg.start is not None:
-        actions.extend(_process_start_config(gen_input, inp_cfg.start))
+        # Distribution slots
+        if inp_cfg.distributions is not None:
+            dists_cfg = inp_cfg.distributions
+            dist_pattern = dists_cfg.pattern
+            for slot in _COORD_FROM_DIST:
+                slot_cfg = getattr(dists_cfg, slot)
+                if slot_cfg is None:
+                    continue
+                coord = _COORD_FROM_DIST[slot]
+                actions.extend(
+                    _process_slot_config(gen_input, slot, slot_cfg, coord, dist_pattern)
+                )
 
-    # Distribution slots
-    if inp_cfg.distributions is not None:
-        dists_cfg = inp_cfg.distributions
-        dist_pattern = dists_cfg.pattern
-        for slot in _COORD_FROM_DIST:
-            slot_cfg = getattr(dists_cfg, slot)
-            if slot_cfg is None:
-                continue
-            coord = _COORD_FROM_DIST[slot]
-            actions.extend(
-                _process_slot_config(gen_input, slot, slot_cfg, coord, dist_pattern)
-            )
+    if config.pmd is not None:
+        actions.extend(_make_pmd_actions(config.pmd))
 
     return actions

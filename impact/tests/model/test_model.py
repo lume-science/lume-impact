@@ -1,6 +1,7 @@
 import os
 
 import pytest
+import numpy as np
 
 from impact import Impact
 from impact.model.actions import HeaderAction
@@ -95,6 +96,46 @@ def test_stat_vars_are_read_only(default_model):
 
 
 # ---------------------------------------------------------------------------
+# PMD variables (read-only)
+# ---------------------------------------------------------------------------
+
+
+def test_pmd_vars_present(default_model):
+    for name in (
+        "pmd:s",
+        "pmd:sigma_x",
+        "pmd:sigma_y",
+        "pmd:sigma_z",
+        "pmd:norm_emit_x",
+        "pmd:norm_emit_y",
+        "pmd:kinetic_energy",
+        "pmd:p",
+        "pmd:beta_x",
+        "pmd:beta_y",
+        "pmd:alpha_x",
+        "pmd:alpha_y",
+    ):
+        assert name in default_model.supported_variables
+
+
+def test_pmd_vars_are_read_only(default_model):
+    pmd_actions = [
+        a
+        for a in default_model.supported_variables.values()
+        if a.name.startswith("pmd:")
+    ]
+    assert pmd_actions
+    assert all(a.read_only for a in pmd_actions)
+
+
+def test_pmd_var_get_matches_shape_and_dtype(default_model):
+    var = default_model.supported_variables["pmd:sigma_x"]
+    value = default_model._get(["pmd:sigma_x"])["pmd:sigma_x"]
+    assert value.shape == var.shape
+    assert value.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
 # Run-info variables (read-only)
 # ---------------------------------------------------------------------------
 
@@ -138,6 +179,12 @@ def test_no_stat_vars_when_stats_none(fast_impact):
     config = VariableMappingConfig(stats=None)
     model = LUMEImpactModel.from_impact(fast_impact, config=config, dummy_run=True)
     assert not any(n.startswith("stat:") for n in model.supported_variables)
+
+
+def test_no_pmd_vars_when_pmd_none(fast_impact):
+    config = VariableMappingConfig(pmd=None)
+    model = LUMEImpactModel.from_impact(fast_impact, config=config, dummy_run=True)
+    assert not any(n.startswith("pmd:") for n in model.supported_variables)
 
 
 # ---------------------------------------------------------------------------
