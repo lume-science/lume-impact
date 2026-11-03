@@ -3,7 +3,7 @@ name: lume-impact-dev
 channels:
   - conda-forge
 dependencies:
-  - python>=3.10
+  - python>=3.11
   - bokeh
   - distgen
   - impact-t=*=mpi_openmpi*
@@ -21,7 +21,7 @@ dependencies:
   - pydantic-settings
   - rich
   - tqdm
-  - pip
+  - pip>=26.2.2
   # Developer
   - bmad>=20260223.1
   - pytao>=1.0.0
