@@ -1,3 +1,6 @@
+import warnings
+
+import numpy as np
 import scipy.constants
 from beamphysics.particles import single_particle
 
@@ -31,6 +34,54 @@ def identify_species(mass_eV, charge_sign):
     raise Exception(
         f"Cannot identify species with mass {mass_eV} eV and charge {charge_sign} e"
     )
+
+
+def impact_particle_ids(pdata, name="particles"):
+    """
+    Particle ids from parsed Impact-T particle data.
+
+    Impact-T keeps a particle's id through the run, also when particles move
+    between MPI ranks, while the rows of each output file come out rank by rank.
+    The ids, not the row order, identify a particle across outputs.
+
+    Parameters
+    ----------
+    pdata : numpy structured array
+        Particle data from `parse_impact_particles` (fort.40, fort.50 and
+        write_beam files), with the ids in the 'id' field (column 9).
+    name : str, optional
+        Name of the particle output, used in the warning, by default 'particles'
+
+    Returns
+    -------
+    numpy.ndarray or None
+        Integer ids, or None if the data has no usable ids (no id column,
+        non-positive values, or repeated ids).
+
+    Notes
+    -----
+    Repeated ids are reported with a warning: Impact-T assigns them when the
+    number of particles read from partcl.data is not a multiple of the number
+    of processors.
+    """
+    names = pdata.dtype.names or ()
+    if "id" not in names:
+        return None
+
+    ids = np.asarray(pdata["id"])
+    if len(ids) == 0 or not np.all(np.isfinite(ids)) or np.any(ids < 1):
+        return None
+
+    ids = ids.astype(np.int64)
+    if len(np.unique(ids)) != len(ids):
+        warnings.warn(
+            f"{name}: Impact-T particle ids are not unique, so they are not used "
+            "(this happens when Np is not a multiple of the number of processors). "
+            "Particle ids are assigned 1..N in file order instead."
+        )
+        return None
+
+    return ids
 
 
 def track_to_s(impact_object, particles, s):
