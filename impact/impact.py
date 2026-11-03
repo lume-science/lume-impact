@@ -521,12 +521,13 @@ class Impact(CommandWrapper):
 
         self.vprint("Running Impact-T in " + self.path)
         self.vprint(runscript)
-        # Write input
-        self.write_input()
 
-        # Remove previous files
+        # Remove previous files. Input may also be fort.X, so this comes first.
         for f in fort_files(self.path):
             os.remove(f)
+
+        # Write input
+        self.write_input()
 
         if timeout:
             res = tools.execute2(runscript.split(), timeout=timeout, cwd=self.path)
@@ -553,6 +554,13 @@ class Impact(CommandWrapper):
                 log.append(path)
             self.vprint("Finished.")
         self.log = log
+
+        if any("greater than the readin wake field range" in line for line in log):
+            warnings.warn(
+                "Impact-T reported that the bunch was longer than a wakefield table "
+                "and extrapolated beyond its last row. Tabulate the wake over a "
+                "longer range, for example with `wakefield_zmax`."
+            )
 
         # Load output
         self.load_output()
@@ -1099,6 +1107,19 @@ class Impact(CommandWrapper):
         write_beam_eles : str or list[str], optional
             Matching string or list of element names to be converted to Impact-T write beam elements.
             Note that there is a limit to the number of these that can be created.  By default = 'monitor::*'
+
+        wakefield_zmax : float, optional
+            Smallest trailing distance to tabulate short-range wakes over [m].
+            Each table covers at least the natural range of its wake model;
+            Impact-T extrapolates beyond the table, so set this when the bunch
+            is longer than that range.
+
+        wakefield_dz : float or dict of str to float, optional
+            Spacing to rebin tabulated (`z_long`) wakes to [m], once or per
+            element name: the IMPACT-T mesh width at that element, the bunch
+            length there divided by header["Nz"] - 1. A bin-averaged table is
+            only correct at that width. If omitted, each table keeps its Bmad
+            spacing.
 
         Returns
         -------

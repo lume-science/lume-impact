@@ -36,6 +36,7 @@ nav:
               - examples/elements/tesla_9cell_cavity.ipynb
               - examples/elements/traveling_wave_cavity.ipynb
               - examples/elements/wakefield.ipynb
+              - examples/elements/wakefield-bmad.ipynb
               - examples/elements/3d_field.ipynb
               - examples/elements/awa_flatbeam.ipynb
 
@@ -57,6 +58,9 @@ nav:
       - CSR:
           - examples/z/elements/csr-zeuthen.ipynb
           - examples/z/elements/csr-bench-bmad.ipynb
+      - Wakefields:
+          - examples/z/elements/wakefield.ipynb
+          - examples/z/elements/wakefield-bmad.ipynb
       - Bmad Comparison:
           - examples/z/elements/decapole-bmad.ipynb
           - examples/z/elements/dipole-bmad.ipynb

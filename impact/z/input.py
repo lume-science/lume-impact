@@ -7,7 +7,7 @@ import shlex
 import types
 import typing
 from abc import abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import (
     Any,
     ClassVar,
@@ -110,7 +110,10 @@ class InputElement(BaseModel):
             has_input_file=has_input_file,
             has_output_file=has_output_file,
         )
-        cls._impactz_fields_ = tuple(cls.__annotations__)
+        # Private/ClassVar annotations are not part of the input line.
+        cls._impactz_fields_ = tuple(
+            attr for attr in cls.__annotations__ if not attr.startswith("_")
+        )
 
     @classmethod
     def class_information(cls):
@@ -1747,6 +1750,31 @@ class RfcavityStructureWakefield(InputElement, element_id=-41, has_input_file=Tr
     """
     Input element: read in RF cavity structure wakefield.
 
+    This is a zero-length switch element. Placing one of these with
+    `enable_wakefield > 0` turns the read-in wakefield on for all *subsequent*
+    lattice elements until another `RfcavityStructureWakefield` with
+    `enable_wakefield < 0` turns it back off.
+
+    The wake data are read from `rfdata{file_id}.in`, a four-column table:
+
+    ==========  ==========================================================
+    Column      Meaning
+    ==========  ==========================================================
+    ``z``       Distance behind the source particle, in meters. Must start
+                at (or be shifted to) 0 and be on a uniform grid.
+    ``Wz``      Longitudinal wake function, in V/C/m. Positive values
+                correspond to energy loss for a trailing particle.
+    ``Wx``      Horizontal transverse (dipole) wake function, in V/C/m^2.
+    ``Wy``      Vertical transverse (dipole) wake function, in V/C/m^2.
+    ==========  ==========================================================
+
+    Notes
+    -----
+    IMPACT-Z skips the entire collective-effects section when the beam current
+    is zero, so `ImpactZInput.average_current` must be nonzero for the
+    wakefield to have any effect. Space charge itself may still be disabled
+    through the boundary type.
+
     Attributes
     ----------
     length : float
@@ -1757,11 +1785,13 @@ class RfcavityStructureWakefield(InputElement, element_id=-41, has_input_file=Tr
         Number of "map steps". Each half-step involves computing a map for that
         half-element which is computed by numerical integration.
     scale : float
-        Scaling factor applied to the read-in wakefield when enabled.
+        Scale factor applied to the wake read in from the file. IMPACT-Z
+        multiplies the longitudinal and both transverse wakes by this value.
     file_id : float
         The file ID to load from.
     enable_wakefield : float
-        -1.0 RF off, 1.0 RF on, < 10 no transverse wakefield effects included
+        -1.0 wakefield off, 1.0 wakefield on without transverse wake effects,
+        10.0 wakefield on including transverse wake effects.
     """
 
     length: float = 0.0
@@ -2621,6 +2651,8 @@ class ImpactZInput(BaseModel):
         write_beam_eles: str | Sequence[str] = ("monitor::*", "marker::*"),
         include_collimation: bool = True,
         integrator_type: IntegratorType = IntegratorType.linear_map,
+        wakefield_zmax: float | None = None,
+        wakefield_dz: float | Mapping[str, float] | None = None,
     ) -> ImpactZInput:
         """
         Create an ImpactZInput object from a Tao instance's lattice.
@@ -2684,6 +2716,19 @@ class ImpactZInput(BaseModel):
             The integrator scheme to be used in the lattice conversion.
             Defaults to 'linear_map', but this may be switched automatically to
             Runge-Kutta depending on IMPACT-Z run requirements.
+        wakefield_zmax : float or None, optional
+            Smallest trailing distance to tabulate short-range wakefields over,
+            in meters. Each table covers at least the natural range of its wake
+            model; IMPACT-Z extrapolates beyond the last row, so set this when
+            the bunch is longer than that range.
+        wakefield_dz : float, dict of str to float, or None, optional
+            Spacing to rebin tabulated (`z_long`) wakes to, in meters, given
+            once or per element name. It should equal the longitudinal mesh
+            width IMPACT-Z bins the bunch at in that element, which follows
+            from the bunch length there and `nz`. A bin-averaged table is only
+            correct at that width. If None, each table keeps its Bmad spacing,
+            which is exact when the table was built at the IMPACT-Z mesh
+            width. See `impact.wakefields.rebin_tabular_wakefield`.
 
         Returns
         -------
@@ -2711,6 +2756,8 @@ class ImpactZInput(BaseModel):
             initial_write_full_id=initial_write_full_id,
             write_beam_eles=write_beam_eles,
             include_collimation=include_collimation,
+            wakefield_zmax=wakefield_zmax,
+            wakefield_dz=wakefield_dz,
         )
 
         input = state.to_input(
@@ -3133,7 +3180,22 @@ class ImpactZInput(BaseModel):
         return items[0]
 
     def space_charge_off(self) -> None:
-        self.average_current = 0.0
+        """
+        Turn off the space-charge calculation.
+
+        IMPACT-Z evaluates wakefields only at nonzero current, so when the
+        lattice has any, the current is kept and the Poisson solve is switched
+        off with `ToggleSpaceCharge` elements instead.
+        """
+        if not any(isinstance(ele, RfcavityStructureWakefield) for ele in self.lattice):
+            self.average_current = 0.0
+            return
+
+        toggles = [ele for ele in self.lattice if isinstance(ele, ToggleSpaceCharge)]
+        for ele in toggles:
+            ele.enable = False
+        if not toggles:
+            self.lattice.insert(0, ToggleSpaceCharge(enable=False))
 
     def space_charge_on(self, bunch_charge: float | None = None) -> None:
         if bunch_charge is None:
