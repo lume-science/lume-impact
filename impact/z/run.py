@@ -9,7 +9,8 @@ import shlex
 import shutil
 import traceback
 import typing
-from collections.abc import Sequence
+import warnings
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from time import monotonic
 from typing import Any, ClassVar, NamedTuple
@@ -422,6 +423,13 @@ class ImpactZ(CommandWrapper):
                 output_log=execute_result["log"].replace("\x00", ""),
             )
 
+            if "over the readin wake function range" in run_info.output_log:
+                warnings.warn(
+                    "IMPACT-Z reported that the bunch was longer than a wakefield "
+                    "table and extrapolated beyond its last row. Tabulate the wake "
+                    "over a longer range, for example with `wakefield_zmax`."
+                )
+
             success_or_failure = "Success" if not execute_result["error"] else "Failure"
             self.vprint(
                 f"{success_or_failure} - execution took {run_info.run_time:0.2f}s."
@@ -818,6 +826,8 @@ class ImpactZ(CommandWrapper):
         write_beam_eles: str | Sequence[str] = ("monitor::*", "marker::*"),
         include_collimation: bool = False,
         integrator_type: IntegratorType = IntegratorType.linear_map,
+        wakefield_zmax: float | None = None,
+        wakefield_dz: float | Mapping[str, float] | None = None,
         workdir: str | pathlib.Path | None = None,
         output: Any | None = None,  # TODO
         alias: dict[str, str] | None = None,
@@ -913,6 +923,15 @@ class ImpactZ(CommandWrapper):
         initial_particles : ParticleGroup, optional
             Initial particles to use in the simulation, using the
             OpenPMD-beamphysics standard.
+        wakefield_zmax : float or None, optional
+            Smallest trailing distance to tabulate short-range wakefields over,
+            in meters. Each table covers at least the natural range of its wake
+            model; IMPACT-Z extrapolates beyond the last row, so set this when
+            the bunch is longer than that range.
+        wakefield_dz : float, dict of str to float, or None, optional
+            Spacing to rebin tabulated (`z_long`) wakes to, in meters, given
+            once or per element name: the longitudinal mesh width IMPACT-Z
+            bins the bunch at in that element. See `ImpactZInput.from_tao`.
 
         Returns
         -------
@@ -941,6 +960,8 @@ class ImpactZ(CommandWrapper):
             write_beam_eles=write_beam_eles,
             include_collimation=include_collimation,
             integrator_type=integrator_type,
+            wakefield_zmax=wakefield_zmax,
+            wakefield_dz=wakefield_dz,
         )
         return cls(
             input=input,
