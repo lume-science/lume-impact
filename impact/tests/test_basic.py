@@ -1,6 +1,8 @@
 import os
-import pytest
 import numpy as np
+import pytest
+import tempfile
+from pathlib import Path
 
 from beamphysics import ParticleGroup
 from impact import Impact
@@ -16,6 +18,17 @@ def fast_impact() -> Impact:
     return imp
 
 
+@pytest.fixture
+def sample_pg() -> ParticleGroup:
+    return ParticleGroup(
+        data={
+            **{key: range(300) for key in ["x", "y", "z", "px", "py", "pz", "t"]},
+            **{key: np.ones(300) for key in ["status", "weight"]},
+            "species": "electron",
+        }
+    )
+
+
 def test_basic_init_run_archive(fast_impact):
     fast_impact.run()
     # Use the tempdir as scratch
@@ -29,14 +42,23 @@ def test_plot(fast_impact):
     fast_impact.plot()
 
 
-def test_repr(fast_impact):
+def test_repr(fast_impact, sample_pg):
     assert f"{fast_impact.header['Np']}" in fast_impact.__repr__()
-    pg = ParticleGroup(
-        data={
-            **{key: range(300) for key in ["x", "y", "z", "px", "py", "pz", "t"]},
-            **{key: np.ones(300) for key in ["status", "weight", "species"]},
-        }
-    )
-    fast_impact.initial_particles = pg
+    fast_impact.initial_particles = sample_pg
     assert "300" in fast_impact.__repr__()
     assert f"{fast_impact.header['Np']}" not in fast_impact.__repr__()
+
+
+def test_particle_survive_archive_roundtrip(fast_impact, sample_pg):
+    assert f"{fast_impact.header['Np']}" in fast_impact.__repr__()
+
+    fast_impact.initial_particles = sample_pg
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        fn = str(Path(tmp_dir) / "imp_archive.h5")
+        fast_impact.archive(fn)
+
+        loaded_impact = Impact.from_archive(fn)
+
+    assert loaded_impact.initial_particles is not None
+    assert len(loaded_impact.initial_particles) == 300
