@@ -45,7 +45,7 @@ def test_plot(fast_impact):
 def test_repr(fast_impact, sample_pg):
     assert f"{fast_impact.header['Np']}" in fast_impact.__repr__()
     fast_impact.initial_particles = sample_pg
-    assert "300" in fast_impact.__repr__()
+    assert f"{len(sample_pg)}" in repr(fast_impact)
     assert f"{fast_impact.header['Np']}" not in fast_impact.__repr__()
 
 

@@ -1216,7 +1216,7 @@ class Impact(CommandWrapper):
         path = self.path
         s = header_str(self.header)
         if self.initial_particles is not None:
-            s += f"Initial Particle Group: {self.initial_particles}\n"
+            s += f"Initial particles: {self.initial_particles}\n"
         if self.finished:
             s += "Impact-T finished in " + path
         elif self.configured:
