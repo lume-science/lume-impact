@@ -38,5 +38,5 @@ def test_repr(fast_impact):
         }
     )
     fast_impact.initial_particles = pg
-    assert "300" in fast_impact.__repr__()
+    assert f"{len(pg)}" in repr(fast_impact)
     assert f"{fast_impact.header['Np']}" not in fast_impact.__repr__()
