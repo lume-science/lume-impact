@@ -26,6 +26,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Execute notebooks
         shell: bash -l {0}
+        env:
+          # don't use UCX in a single runner context
+          OMPI_MCA_pml: ob1
+          OMPI_MCA_btl: self,sm
         run: |
           set -e
           scripts/execute_notebooks.bash
