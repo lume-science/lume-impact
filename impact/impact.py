@@ -36,7 +36,12 @@ from .parsers import (
     parse_impact_input,
     parse_impact_particles,
 )
-from .particles import identify_species, track1_to_s, track_to_s
+from .particles import (
+    identify_species,
+    impact_particle_ids,
+    track1_to_s,
+    track_to_s,
+)
 from .plot import plot_layout, plot_stat, plot_stats_with_layout
 
 EXTRA_UNITS = {
@@ -287,6 +292,18 @@ class Impact(CommandWrapper):
             fill_value="extrapolate",
         )
 
+        # Impact-T numbers the particles it reads from partcl.data 1..N in file
+        # order. When that file was written here from .initial_particles, those
+        # numbers are mapped back to the ids of .initial_particles, so that the
+        # ids of the output particles are the ids of the input particles.
+        input_ids = None
+        if (
+            self.initial_particles
+            and self.header["Flagdist"] == 16
+            and "id" in self.initial_particles.data
+        ):
+            input_ids = np.asarray(self.initial_particles.id)
+
         for name, pdata in self.particles.items():
             # Initial particles have special z = beta_ref*c. See: impact_particles_to_particle_data
             if name == "initial_particles" and self.header["Flagimg"]:
@@ -305,8 +322,51 @@ class Impact(CommandWrapper):
                 cathode_kinetic_energy_ref=cathode_kinetic_energy_ref,
                 verbose=self.verbose,
             )
+
+            # Keep Impact-T's particle ids (otherwise ParticleGroup numbers the
+            # rows 1..N, which does not follow the particles between outputs)
+            ids = impact_particle_ids(pdata, name=name)
+            if ids is not None:
+                if input_ids is not None and ids.max() <= len(input_ids):
+                    ids = input_ids[ids - 1]
+                pg_data["id"] = ids
+
             self.particles[name] = ParticleGroup(data=pg_data)
             self.vprint(f"Converted {name} to ParticleGroup")
+
+    def trajectory(self, pid):
+        """
+        Follow one particle through the particle outputs.
+
+        Parameters
+        ----------
+        pid : int
+            Particle id, as in `.particles[name].id`.
+
+        Returns
+        -------
+        dict or None
+            'name': the outputs that contain the particle (initial_particles,
+            write_beam screens, final_particles), ordered by mean z, and the
+            particle's 'x', 'y', 'z', 'px', 'py', 'pz' and 't' at each of them,
+            as arrays. None if no output contains the particle.
+
+        Notes
+        -----
+        The particle ids come from Impact-T (see `load_particles`); outputs
+        without an id column cannot be followed this way.
+        """
+        groups = [
+            (name, P) for name, P in self.particles.items() if np.any(P.id == pid)
+        ]
+        if not groups:
+            return None
+        groups.sort(key=lambda item: item[1]["mean_z"])
+
+        trajectory = {"name": [name for name, _ in groups]}
+        for key in ("x", "y", "z", "px", "py", "pz", "t"):
+            trajectory[key] = np.array([P[key][P.id == pid][0] for _, P in groups])
+        return trajectory
 
     def ele_bookkeeper(self):
         """
