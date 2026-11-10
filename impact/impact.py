@@ -791,8 +791,10 @@ class Impact(CommandWrapper):
         )
         self._units.update(STATIC_UNITS)
 
-        if "initial_particles" in g:
-            self.initial_particles = ParticleGroup(h5=g["initial_particles"])
+        if "particles" in g and ("initial_particles" in g["particles"]):
+            self.initial_particles = ParticleGroup(
+                h5=g["particles"]["initial_particles"]
+            )
 
         if "control_groups" in g:
             self.group = archive.read_control_groups_h5(
