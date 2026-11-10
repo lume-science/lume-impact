@@ -1,25 +1,42 @@
 import os
+import pytest
+import numpy as np
 
+from beamphysics import ParticleGroup
 from impact import Impact
 
 
-def test_basic_init_run_archive():
-    I = Impact()
+@pytest.fixture
+def fast_impact() -> Impact:
+    imp = Impact()
     # Switches to make this fast
-    I.header["Np"] = 100
-    I.header["Bcurr"] = 0  # turn off SC
-    I.run()
+    imp.header["Np"] = 100
+    imp.header["Bcurr"] = 0  # turn off SC
 
+    return imp
+
+
+def test_basic_init_run_archive(fast_impact):
+    fast_impact.run()
     # Use the tempdir as scratch
-    afile = os.path.join(I.path, "test.h5")
-    I.archive(afile)
+    afile = os.path.join(fast_impact.path, "test.h5")
+    fast_impact.archive(afile)
     Impact.from_archive(afile)
 
 
-def test_plot():
-    I = Impact()
-    # Switches to make this fast
-    I.header["Np"] = 100
-    I.header["Bcurr"] = 0  # turn off SC
-    I.run()
-    I.plot()
+def test_plot(fast_impact):
+    fast_impact.run()
+    fast_impact.plot()
+
+
+def test_repr(fast_impact):
+    assert f"{fast_impact.header['Np']}" in fast_impact.__repr__()
+    pg = ParticleGroup(
+        data={
+            **{key: range(300) for key in ["x", "y", "z", "px", "py", "pz", "t"]},
+            **{key: np.ones(300) for key in ["status", "weight", "species"]},
+        }
+    )
+    fast_impact.initial_particles = pg
+    assert f"{len(pg)}" in repr(fast_impact)
+    assert f"{fast_impact.header['Np']}" not in fast_impact.__repr__()

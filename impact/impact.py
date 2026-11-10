@@ -1213,6 +1213,8 @@ class Impact(CommandWrapper):
     def __str__(self):
         path = self.path
         s = header_str(self.header)
+        if self.initial_particles is not None:
+            s += f"Initial particles: {self.initial_particles}\n"
         if self.finished:
             s += "Impact-T finished in " + path
         elif self.configured:
@@ -1226,7 +1228,10 @@ class Impact(CommandWrapper):
         Simple repr showing the number of particles and the stop z.
         """
         memloc = hex(id(self))
-        np = self.header["Np"]
+        if self.initial_particles is not None:
+            np = len(self.initial_particles)
+        else:
+            np = self.header["Np"]
         z = self.stop
         return f"<Impact with {np} particles, stopping at {z} m, at {memloc}>"
 
