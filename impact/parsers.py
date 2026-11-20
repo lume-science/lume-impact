@@ -317,6 +317,8 @@ DIST_TYPE = {
     25: "readElegant",
     27: "colcoldzsob",
     112: "beercan",  # todo: make general
+    166: "read_id",
+    167: "read_impactz",
 }
 # TODO: ijk distribution
 
@@ -1681,7 +1683,7 @@ def parse_impact_input(filePath, verbose=False):
     header = parse_header(lines)
 
     # Check for input particles. Must be named 'partcl.data'.
-    if header["Flagdist"] == 16:
+    if header["Flagdist"] in (16, 166):
         pfile = os.path.join(path, "partcl.data")
         pfile = os.path.abspath(pfile)
         if verbose and not os.path.exists(pfile):
