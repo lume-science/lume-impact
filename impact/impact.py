@@ -589,6 +589,7 @@ class Impact(CommandWrapper):
             fname,
             verbose=self.verbose,
             cathode_kinetic_energy_ref=cathode_kinetic_energy_ref,
+            n_columns=9,
         )
 
         if update_header:
@@ -599,8 +600,6 @@ class Impact(CommandWrapper):
                         f"{start_str}: Replaced {k} with {v} according to initial particles"
                     )
 
-            # These need to be set
-            H["Flagdist"] = 16
             # Clear out scale factors
             for k in ["xscale", "pxscale", "yscale", "pyscale", "zscale", "pzscale"]:
                 if H[k] != 1.0:
@@ -660,7 +659,7 @@ class Impact(CommandWrapper):
                 )
 
         # Symlink
-        elif self.header["Flagdist"] == 16:
+        elif self.header["Flagdist"] in (16, 166):
             src = self.input["input_particle_file"]
             dest = os.path.join(path, "partcl.data")
 
